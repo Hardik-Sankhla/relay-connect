@@ -46,9 +46,6 @@ You should see:
 # Initialise config
 relay init
 
-# Register the server
-relay add demo-server
-
 # Check it's online
 RELAY_TOKEN=dev-token relay status
 
@@ -62,8 +59,8 @@ RELAY_TOKEN=dev-token relay deploy ./examples demo-server
 RELAY_TOKEN=dev-token relay ssh demo-server
 ```
 
-Note: `relay ssh demo-server` now auto-registers `demo-server` if it does not
-already exist in your config.
+Note: `relay ssh`, `relay exec`, `relay deploy`, and `relay ping` auto-register
+the profile if it does not already exist in your config.
 
 ---
 
@@ -89,12 +86,14 @@ relay-agent --relay ws://YOUR_LAPTOP_IP:8765 --name my-phone --tags termux
 
 **On your laptop:**
 ```bash
-relay add my-phone --tags termux
 RELAY_TOKEN=dev-token relay status           # my-phone should appear
 RELAY_TOKEN=dev-token relay ssh my-phone     # shell on your phone!
 RELAY_TOKEN=dev-token relay exec my-phone "ls ~"
 RELAY_TOKEN=dev-token relay deploy ./scripts my-phone
 ```
+
+If you want to set custom tags, deploy path, or post-deploy hook in advance,
+you can still run `relay add my-phone --tags termux` manually.
 
 ---
 
@@ -102,7 +101,7 @@ RELAY_TOKEN=dev-token relay deploy ./scripts my-phone
 
 ```bash
 # Unit tests (fast, no server needed)
-pytest tests/test_crypto.py tests/test_protocol.py tests/test_config.py tests/test_cli.py -v
+pytest tests/test_crypto.py tests/test_protocol.py tests/test_config.py tests/test_cli.py tests/test_regressions.py -v
 
 # Integration tests (starts real server + agent automatically)
 pytest tests/test_integration.py -v
@@ -170,6 +169,7 @@ relay-connect/
 │   ├── test_protocol.py
 │   ├── test_config.py
 │   ├── test_cli.py
+│   ├── test_regressions.py
 │   └── test_integration.py  ← full server+agent+client tests
 ├── examples/           ← runnable demos
 │   ├── quickstart.py   ← all-in-one demo

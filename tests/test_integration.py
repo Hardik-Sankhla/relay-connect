@@ -103,6 +103,13 @@ class TestAuthentication:
             async with RelayClient(url, TEST_CLIENT_ID, "wrong-token") as rc:
                 await rc.ping()
 
+    @pytest.mark.asyncio
+    async def test_ping_under_1_second_locally(self, relay_server):
+        _, url = relay_server
+        async with RelayClient(url, TEST_CLIENT_ID, TEST_TOKEN) as rc:
+            latency = await rc.ping()
+            assert 0 < latency < 1.0
+
 
 # ---------------------------------------------------------------------------
 # Agent registration
@@ -143,8 +150,9 @@ class TestCertIssuance:
     async def test_cert_error_for_offline_agent(self, relay_server):
         _, url = relay_server
         async with RelayClient(url, TEST_CLIENT_ID, TEST_TOKEN) as rc:
-            with pytest.raises(AgentNotFoundError):
+            with pytest.raises(AgentNotFoundError) as exc_info:
                 await rc.get_cert("nonexistent-agent")
+            assert "nonexistent-agent" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_cert_is_cached(self, relay_with_agent):
@@ -330,3 +338,24 @@ class TestConcurrent:
         results = await asyncio.gather(*[client_task(i) for i in range(8)])
         for i, r in enumerate(results):
             assert r == f"iso_{i}"
+
+    @pytest.mark.asyncio
+    async def test_five_concurrent_deploys(self, relay_with_agent, tmp_path):
+        _, url, _ = relay_with_agent
+
+        async def deploy_task(i: int):
+            src = tmp_path / f"deploy_{i}.txt"
+            src.write_text(f"deploy content {i}")
+            dest = tmp_path / f"deploy_dest_{i}"
+            dest.mkdir(exist_ok=True)
+            async with RelayClient(url, f"deployer-{i}", TEST_TOKEN) as rc:
+                result = await rc.deploy(
+                    str(src),
+                    TEST_AGENT_NAME,
+                    deploy_path=str(dest),
+                    progress=False,
+                )
+            return result.bytes_written
+
+        results = await asyncio.gather(*[deploy_task(i) for i in range(5)])
+        assert all(size > 0 for size in results)

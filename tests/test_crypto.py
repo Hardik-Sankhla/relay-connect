@@ -1,5 +1,6 @@
 """Tests for relay.crypto — cert issuance, verification, expiry."""
 
+import json
 import time
 import pytest
 
@@ -66,12 +67,27 @@ class TestSessionCert:
         assert cert2.agent_name == cert.agent_name
         assert cert2.signature == cert.signature
 
+    def test_from_dict_ignores_unknown_fields(self):
+        key = make_test_key()
+        cert = SessionCert.issue("srv", "cli", key)
+        d = cert.to_dict()
+        d["unknown_field"] = "ignored"
+        cert2 = SessionCert.from_dict(d)
+        assert cert2.session_id == cert.session_id
+
     def test_payload_is_deterministic(self):
         key = make_test_key()
         cert = SessionCert.issue("srv", "cli", key)
         p1 = cert._payload_bytes()
         p2 = cert._payload_bytes()
         assert p1 == p2
+
+    def test_payload_bytes_uses_sorted_keys(self):
+        key = make_test_key()
+        cert = SessionCert.issue("srv", "cli", key)
+        payload = json.loads(cert._payload_bytes().decode())
+        keys = list(payload.keys())
+        assert keys == sorted(keys)
 
     def test_verify_valid_cert(self):
         key = Ed25519PrivateKey.generate()
@@ -107,3 +123,15 @@ class TestSessionCert:
         key = make_test_key()
         ids = {SessionCert.issue("srv", "cli", key).session_id for _ in range(20)}
         assert len(ids) == 20  # all unique
+
+    def test_session_id_is_url_safe_base64(self):
+        key = make_test_key()
+        for _ in range(10):
+            cert = SessionCert.issue("srv", "cli", key)
+            assert "+" not in cert.session_id
+            assert "/" not in cert.session_id
+            assert " " not in cert.session_id
+
+    def test_issue_requires_signing_key_object(self):
+        with pytest.raises((RuntimeError, AttributeError, TypeError)):
+            SessionCert.issue("srv", "cli", b"bad-bytes-key")

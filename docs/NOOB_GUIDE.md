@@ -34,6 +34,30 @@ Scan the QR from your laptop. Done.
 
 ---
 
+## Daily commands (what to run every day)
+
+On laptop:
+```bash
+relay server start
+```
+
+On phone (Termux):
+```bash
+relay-agent --relay ws://YOUR_LAPTOP_IP:8765 --name my-phone --tags termux
+```
+
+From laptop to control phone:
+```bash
+relay status
+relay ssh my-phone
+relay exec my-phone "pwd && ls"
+relay deploy ./my-project my-phone
+```
+
+Tip: if `my-phone` profile does not exist yet, these commands create it automatically.
+
+---
+
 ## What you should see (ASCII screenshots)
 
 ### Laptop

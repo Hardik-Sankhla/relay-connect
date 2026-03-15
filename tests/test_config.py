@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from relay.config import (
+    DEFAULT_DEPLOY_PATH,
     RelayConfig,
     ServerProfile,
     add_server,
@@ -35,8 +36,12 @@ class TestServerProfile:
     def test_defaults(self):
         p = ServerProfile(name="prod-1")
         assert p.agent_name == "prod-1"
-        assert p.deploy_path == "/tmp/relay-deploy"
+        assert p.deploy_path == DEFAULT_DEPLOY_PATH
         assert isinstance(p.tags, list)
+
+    def test_default_deploy_path_uses_tempdir(self):
+        expected = str(Path(tempfile.gettempdir()) / "relay-deploy")
+        assert DEFAULT_DEPLOY_PATH == expected
 
     def test_to_dict_round_trip(self):
         p = ServerProfile(name="srv", tags=["web"], description="test server")
@@ -95,7 +100,10 @@ class TestConfigIO:
         save_config(cfg)
         import relay.config as cfg_mod
         mode = cfg_mod.CONFIG_FILE.stat().st_mode & 0o777
-        assert mode == 0o600
+        if os.name == "nt":
+            assert mode & 0o200
+        else:
+            assert mode == 0o600
 
     def test_add_and_get_server(self, tmp_config):
         profile = ServerProfile(name="staging")

@@ -26,7 +26,7 @@ pip install websockets cryptography click
 On Termux:
 ```bash
 pkg install python
-pip install relay-connect
+pip install git+https://github.com/Hardik-Sankhla/relay-connect.git
 ```
 
 ---
@@ -45,7 +45,7 @@ cd relay-connect && python -m relay --version
 ## Agent connects but doesn't appear in `relay list`
 
 1. Check agent terminal for errors — it should print `"Agent 'X' registered with relay"`
-2. Make sure `--name` on the agent matches what you used in `relay add`
+2. Make sure `--name` on the agent is the one you use in `relay ssh/exec/deploy`
 3. Try `relay status` — it queries the relay directly
 4. Check the relay audit log: `relay logs`
 
@@ -153,13 +153,13 @@ await asyncio.sleep(0.5)   # increase to 1.0
 
 ## Deploy succeeds but files not found on remote
 
-The deploy puts files in `--deploy-path` (default `/tmp/relay-deploy`).
+The deploy puts files in `--deploy-path` (default is your OS temp folder + `relay-deploy`).
 Check:
 ```bash
-relay exec prod-1 "ls /tmp/relay-deploy/"
+relay exec prod-1 "python -c \"import tempfile; print(tempfile.gettempdir())\""
 ```
 
-Archives are extracted in place. If you deployed `./dist`, look for `/tmp/relay-deploy/dist/`.
+Archives are extracted in place. If you deployed `./dist`, look under the configured deploy path.
 
 ---
 

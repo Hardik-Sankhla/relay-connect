@@ -114,3 +114,42 @@ class TestConvenienceConstructors:
         assert msg["type"] == "EXEC_OUTPUT"
         assert msg["stdout"] == "hello"
         assert msg["exit_code"] == 0
+
+    def test_shell_open_fields(self):
+        raw = proto.shell_open("agent-1", {"sig": "x"}, rows=24, cols=80, term="xterm-256color")
+        msg = self._msg(raw)
+        assert msg["type"] == "SHELL_OPEN"
+        assert msg["rows"] == 24
+        assert msg["cols"] == 80
+        assert msg["term"] == "xterm-256color"
+        assert msg["agent_name"] == "agent-1"
+
+    def test_shell_ready(self):
+        msg = self._msg(proto.shell_ready("sess-abc"))
+        assert msg["type"] == "SHELL_READY"
+        assert msg["session_id"] == "sess-abc"
+
+    def test_shell_data_base64_roundtrip(self):
+        import base64
+        original = b"Hello PTY terminal data"
+        data_b64 = base64.b64encode(original).decode()
+        msg = self._msg(proto.shell_data("sess-1", data_b64))
+        assert msg["type"] == "SHELL_DATA"
+        assert base64.b64decode(msg["data_b64"]) == original
+
+    def test_shell_resize_rows_and_cols(self):
+        msg = self._msg(proto.shell_resize("sess-1", rows=40, cols=132))
+        assert msg["type"] == "SHELL_RESIZE"
+        assert msg["rows"] == 40
+        assert msg["cols"] == 132
+
+    def test_shell_exit_code(self):
+        msg = self._msg(proto.shell_exit("sess-2", 130))
+        assert msg["type"] == "SHELL_EXIT"
+        assert msg["exit_code"] == 130
+
+    def test_shell_msg_types_in_enum(self):
+        required = ["SHELL_OPEN", "SHELL_READY", "SHELL_DATA", "SHELL_RESIZE", "SHELL_EXIT"]
+        enum_values = [m.value for m in MsgType]
+        for item in required:
+            assert item in enum_values

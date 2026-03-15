@@ -23,6 +23,28 @@ firewall guidance, and QR codes automatically.
 No manual `relay add` is required anymore. Commands like `relay ssh my-phone`
 auto-register a profile if one doesn't exist.
 
+## How to use it (daily flow)
+
+1. Start relay server on your laptop in one terminal:
+```bash
+relay server start --host 0.0.0.0 --port 8765
+```
+2. Start agent on your remote device (for example Termux):
+```bash
+relay-agent --relay ws://YOUR_LAPTOP_IP:8765 --name my-phone --tags termux
+```
+3. Use from your laptop (profile is auto-created if missing):
+```bash
+relay status
+relay ssh my-phone
+relay exec my-phone "uname -a"
+relay deploy ./scripts my-phone
+```
+4. Diagnose setup issues quickly:
+```bash
+relay doctor --relay ws://YOUR_LAPTOP_IP:8765
+```
+
 ---
 
 ## The problem it solves
@@ -89,12 +111,14 @@ relay-agent --relay ws://localhost:8765 --name prod-1 --tags dev
 **Terminal 3 — client (your laptop):**
 ```bash
 relay init
-relay add prod-1
 relay status                              # check prod-1 is online
 relay exec prod-1 "uname -a"
 relay deploy ./myapp prod-1
 relay ssh prod-1
 ```
+
+`relay ssh`, `relay exec`, `relay deploy`, and `relay ping` auto-register a
+profile when one does not exist.
 
 ---
 
@@ -125,7 +149,6 @@ relay-agent --relay ws://YOUR_LAPTOP_IP:8765 --name my-phone --tags termux
 ```bash
 relay init
 relay server start                        # keeps running in one terminal
-relay add my-phone
 relay ssh my-phone                        # interactive shell on your phone
 relay deploy ./scripts my-phone           # push files to phone
 relay exec my-phone "ls ~/projects"
@@ -148,7 +171,7 @@ relay init --relay-url ws://relay.mycompany.com:8765
 ```
 
 ### `relay add <name>`
-Register a remote server profile.
+Register a remote server profile manually (optional; commands can auto-register).
 ```bash
 relay add prod-1
 relay add prod-1 --relay-url ws://relay.example.com:8765
@@ -166,6 +189,19 @@ relay list
 Check relay connectivity and which agents are online.
 ```bash
 relay status
+```
+
+### `relay wizard`
+Interactive setup for laptop or Termux with QR/token guidance.
+```bash
+relay wizard
+```
+
+### `relay doctor`
+Runs environment and relay connectivity diagnostics.
+```bash
+relay doctor
+relay doctor --relay ws://192.168.1.36:8765
 ```
 
 ### `relay ping <name>`

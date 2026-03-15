@@ -143,6 +143,28 @@ class TestWizardCommand:
         assert result.exit_code == 0
         assert "wizard" in result.output.lower()
 
+    def test_wizard_dry_run_does_not_start_processes(self, isolated, monkeypatch):
+        runner, tmp_path = isolated
+        import relay.cli as cli_mod
+        import relay.config as cfg_mod
+        monkeypatch.setattr(cli_mod, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+        started = []
+        with patch("subprocess.Popen", lambda *a, **k: started.append(a) or MagicMock()):
+            result = runner.invoke(cli, ["wizard", "--dry-run"])
+        assert result.exit_code == 0
+        assert len(started) == 0
+
+    def test_wizard_dry_run_shows_connection_string(self, isolated, monkeypatch):
+        runner, tmp_path = isolated
+        import relay.cli as cli_mod
+        import relay.config as cfg_mod
+        monkeypatch.setattr(cli_mod, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+        result = runner.invoke(cli, ["wizard", "--dry-run"])
+        assert result.exit_code == 0
+        assert "ws://" in result.output or "relay-connect://" in result.output
+
 
 class TestDoctorCommand:
     def test_doctor_runs(self, isolated, monkeypatch):
@@ -166,6 +188,26 @@ class TestDoctorCommand:
         result = runner.invoke(cli, ["doctor", "--relay", "ws://localhost:8765"])
         assert result.exit_code == 0
         assert "doctor" in result.output.lower()
+
+    def test_doctor_shows_python_check(self, isolated):
+        runner, _ = isolated
+        result = runner.invoke(cli, ["doctor", "--relay", "ws://127.0.0.1:59999"])
+        assert "python" in result.output.lower() or "3." in result.output
+
+    def test_doctor_shows_websockets_check(self, isolated):
+        runner, _ = isolated
+        result = runner.invoke(cli, ["doctor", "--relay", "ws://127.0.0.1:59999"])
+        assert "websocket" in result.output.lower()
+
+    def test_doctor_shows_cryptography_check(self, isolated):
+        runner, _ = isolated
+        result = runner.invoke(cli, ["doctor", "--relay", "ws://127.0.0.1:59999"])
+        assert "cryptography" in result.output.lower()
+
+    def test_doctor_has_status_symbols(self, isolated):
+        runner, _ = isolated
+        result = runner.invoke(cli, ["doctor", "--relay", "ws://127.0.0.1:59999"])
+        assert "\u2713" in result.output or "\u2717" in result.output or "ok" in result.output.lower()
 
 
 class TestExecCommand:
