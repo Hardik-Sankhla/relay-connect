@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "relay-connect"
+version = "0.1.0"
+description = "Dead-simple, secure remote connections and deploys — zero open ports, short-lived certs"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "relay-connect contributors" }]
+keywords = ["ssh", "deploy", "tunnel", "relay", "remote", "devops"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking",
+    "Topic :: Internet",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "websockets>=12.0",
+    "click>=8.1",
+    "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+relay = "relay.cli:main"
+relay-agent = "relay.agent_entry:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/relay-connect"
+Issues = "https://github.com/your-org/relay-connect/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["relay*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["relay"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

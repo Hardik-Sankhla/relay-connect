@@ -1,0 +1,125 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "relay: install deps",
+      "type": "shell",
+      "command": "pip install -e '.[dev]'",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: start server",
+      "type": "shell",
+      "command": "RELAY_TOKEN=dev-token relay server start --host 127.0.0.1 --port 8765",
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "relay-stack"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "relay: start agent (demo-server)",
+      "type": "shell",
+      "command": "RELAY_TOKEN=dev-token relay-agent --relay ws://127.0.0.1:8765 --name demo-server --tags dev",
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "relay-stack"
+      },
+      "problemMatcher": [],
+      "dependsOn": ["relay: start server"]
+    },
+    {
+      "label": "relay: run all tests",
+      "type": "shell",
+      "command": "python -m pytest tests/ -v --tb=short",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: run unit tests",
+      "type": "shell",
+      "command": "python -m pytest tests/test_crypto.py tests/test_protocol.py tests/test_config.py tests/test_cli.py -v",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: run integration tests",
+      "type": "shell",
+      "command": "python -m pytest tests/test_integration.py -v --tb=long --timeout=30",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: coverage report",
+      "type": "shell",
+      "command": "python -m pytest tests/ --cov=relay --cov-report=term-missing --cov-report=html",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: quickstart demo",
+      "type": "shell",
+      "command": "RELAY_URL=ws://127.0.0.1:8765 RELAY_TOKEN=dev-token python examples/quickstart.py",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: sdk examples",
+      "type": "shell",
+      "command": "RELAY_URL=ws://127.0.0.1:8765 RELAY_TOKEN=dev-token RELAY_AGENT=demo-server python examples/sdk_usage.py",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "relay: init config",
+      "type": "shell",
+      "command": "relay init && relay add demo-server",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "relay: check status",
+      "type": "shell",
+      "command": "RELAY_TOKEN=dev-token relay status",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
+}

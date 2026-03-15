@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# IDE
+.vscode/settings.json.local
+.idea/
+*.swp
+*.swo
+
+# Relay runtime / secrets
+~/.relay/
+*.pem
+*.key
+relay_private*
+relay_public*
+.env
+.env.local
+
+# Logs
+*.log
+audit.log
+agent-audit.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution
+dist/
+*.whl
+*.tar.gz

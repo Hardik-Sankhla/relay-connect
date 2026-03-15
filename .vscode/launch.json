@@ -1,0 +1,110 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Relay: Start Server",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "relay.server",
+      "args": ["--host", "127.0.0.1", "--port", "8765", "--no-auth"],
+      "env": {
+        "RELAY_TOKEN": "dev-token"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Relay: Start Agent (demo-server)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "relay.agent_entry",
+      "args": [
+        "--relay", "ws://127.0.0.1:8765",
+        "--name", "demo-server",
+        "--tags", "dev,local"
+      ],
+      "env": {
+        "RELAY_TOKEN": "dev-token"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Relay: Run Quickstart Demo",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/examples/quickstart.py",
+      "env": {
+        "RELAY_URL": "ws://127.0.0.1:8765",
+        "RELAY_TOKEN": "dev-token",
+        "RELAY_CLIENT_ID": "vscode-debug",
+        "RELAY_AGENT": "demo-server"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Relay: SDK Usage Examples",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/examples/sdk_usage.py",
+      "env": {
+        "RELAY_URL": "ws://127.0.0.1:8765",
+        "RELAY_TOKEN": "dev-token",
+        "RELAY_CLIENT_ID": "vscode-debug",
+        "RELAY_AGENT": "demo-server"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Relay: Run All Tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/", "-v", "--tb=short"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Relay: Run Unit Tests Only",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests/test_crypto.py",
+        "tests/test_protocol.py",
+        "tests/test_config.py",
+        "tests/test_cli.py",
+        "-v"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Relay: Run Integration Tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/test_integration.py", "-v", "--tb=long"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Relay: Termux Connect Example",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/examples/termux_connect.py",
+      "env": {
+        "RELAY_URL": "ws://127.0.0.1:8765",
+        "RELAY_TOKEN": "dev-token",
+        "RELAY_CLIENT_ID": "my-laptop",
+        "RELAY_AGENT": "my-phone"
+      },
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Relay: Server + Agent (start both)",
+      "configurations": ["Relay: Start Server", "Relay: Start Agent (demo-server)"],
+      "stopAll": true
+    }
+  ]
+}
