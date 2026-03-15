@@ -139,6 +139,28 @@ def _print_qr(payload: str) -> None:
         click.echo(payload)
 
 
+def _get_or_auto_server(name: str) -> ServerProfile:
+    """Return an existing server profile, or create one from defaults for noob flow."""
+    cfg = load_config()
+    existing = cfg.servers.get(name)
+    if existing:
+        return existing
+
+    relay_url = os.environ.get("RELAY_URL") or cfg.default_relay_url or "ws://localhost:8765"
+    profile = ServerProfile(
+        name=name,
+        relay_url=relay_url,
+        agent_name=name,
+        deploy_path=DEFAULT_DEPLOY_PATH,
+        tags=["auto"],
+        description="Auto-created by relay CLI",
+    )
+    cfg.servers[name] = profile
+    save_config(cfg)
+    _info(f"Auto-registered '{name}' with relay {relay_url}")
+    return profile
+
+
 def _is_windows() -> bool:
     return os.name == "nt"
 
@@ -242,6 +264,9 @@ def wizard_cmd(port: int, agent_name: str, dry_run: bool):
         env_path.write_text(
             f"RELAY_TOKEN={token}\nRELAY_URL={relay_url}\nRELAY_CLIENT_ID={socket.gethostname()}\n"
         )
+        cfg = init_config(relay_url=f"ws://localhost:{port}")
+        cfg.default_relay_url = f"ws://localhost:{port}"
+        save_config(cfg)
     _success(f"Saved {env_path}")
 
     # Start server
@@ -308,7 +333,11 @@ def _wizard_termux(port: int, agent_name: str, dry_run: bool):
     _info("Starting agent now...")
     if not dry_run:
         os.environ["RELAY_TOKEN"] = token
-        subprocess.run(["relay-agent", "--relay", relay_url, "--name", agent_name, "--tags", "termux"], check=False)
+        subprocess.Popen(
+            ["relay-agent", "--relay", relay_url, "--name", agent_name, "--tags", "termux", "--persistent"],
+            start_new_session=True,
+        )
+        _success("Agent started in background")
 
 
 def _termux_install_if_needed():
@@ -350,7 +379,11 @@ def termux_setup_cmd(relay_url: str, agent_name: str, token: str):
             subprocess.run(["termux-wake-lock"], check=False)
         _success("Termux setup complete. Starting agent...")
         os.environ["RELAY_TOKEN"] = token
-        subprocess.run(["relay-agent", "--relay", relay_url, "--name", agent_name, "--tags", "termux", "--persistent"], check=False)
+        subprocess.Popen(
+            ["relay-agent", "--relay", relay_url, "--name", agent_name, "--tags", "termux", "--persistent"],
+            start_new_session=True,
+        )
+        _success("Agent started in background")
     else:
         _info("Run: relay wizard  (on your phone) for QR-based setup")
 
@@ -551,7 +584,7 @@ def agent_group():
 @click.option("--relay", "relay_url", default="ws://localhost:8765", help="Relay server URL")
 @click.option("--name", required=True, help="Agent name (must match server profile name)")
 @click.option("--tags", default="", help="Comma-separated tags (e.g. prod,us-east)")
-@click.option("--deploy-base", default="/tmp/relay-deploy", help="Base dir for deployed files")
+@click.option("--deploy-base", default=DEFAULT_DEPLOY_PATH, help="Base dir for deployed files")
 @click.option("--pubkey", default="", help="Path to relay server public key (for cert verification)")
 def agent_start(relay_url: str, name: str, tags: str, deploy_base: str, pubkey: str):
     """Start relay agent on this machine (connects outbound to relay)."""
@@ -577,11 +610,7 @@ def agent_start(relay_url: str, name: str, tags: str, deploy_base: str, pubkey: 
 @click.option("--count", default=3, help="Number of pings")
 def ping_cmd(name: str, count: int):
     """Ping relay and agent to measure latency."""
-    try:
-        server = get_server(name)
-    except RelayError as e:
-        _fail(str(e))
-        sys.exit(1)
+    server = _get_or_auto_server(name)
 
     async def _ping():
         from relay.client import RelayClient
@@ -614,11 +643,7 @@ def ping_cmd(name: str, count: int):
 def exec_cmd(name: str, command: tuple):
     """Execute a command on a remote server via the relay."""
     cmd = " ".join(command)
-    try:
-        server = get_server(name)
-    except RelayError as e:
-        _fail(str(e))
-        sys.exit(1)
+    server = _get_or_auto_server(name)
 
     async def _exec():
         from relay.client import RelayClient
@@ -652,11 +677,7 @@ def exec_cmd(name: str, command: tuple):
 @click.option("--no-progress", is_flag=True, default=False)
 def deploy_cmd(path: str, name: str, deploy_path: str, post_deploy: str, no_progress: bool):
     """Deploy files or a directory to a remote server."""
-    try:
-        server = get_server(name)
-    except RelayError as e:
-        _fail(str(e))
-        sys.exit(1)
+    server = _get_or_auto_server(name)
 
     dest = deploy_path or server.deploy_path
     hook = post_deploy or server.post_deploy
@@ -700,11 +721,7 @@ def deploy_cmd(path: str, name: str, deploy_path: str, post_deploy: str, no_prog
 @click.option("--command", "-c", default="", help="Run single command instead of interactive shell")
 def ssh_cmd(name: str, command: str):
     """Open an interactive SSH shell through the relay tunnel."""
-    try:
-        server = get_server(name)
-    except RelayError as e:
-        _fail(str(e))
-        sys.exit(1)
+    server = _get_or_auto_server(name)
 
     _info(f"Opening shell on '{name}' via relay...")
     _info("(Commands are forwarded through the relay — no direct SSH port needed)")
@@ -748,6 +765,10 @@ def ssh_cmd(name: str, command: str):
                             click.echo("  Disconnected.")
                             break
                         if not cmd.strip():
+                            continue
+                        # Basic mode cannot host fully interactive programs.
+                        if cmd.strip().split()[0] in {"python", "ipython", "vim", "nano", "top", "htop", "less", "more"}:
+                            _info("Interactive apps are limited in basic mode. Use: relay ssh --command '<cmd>' or install relay-connect[ssh].")
                             continue
                         result = await rc.exec(name, cmd)
                         if result.stdout:

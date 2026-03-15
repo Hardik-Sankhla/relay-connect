@@ -20,6 +20,9 @@ relay wizard
 That's it. Follow the on-screen instructions. The wizard handles tokens, IPs,
 firewall guidance, and QR codes automatically.
 
+No manual `relay add` is required anymore. Commands like `relay ssh my-phone`
+auto-register a profile if one doesn't exist.
+
 ---
 
 ## The problem it solves

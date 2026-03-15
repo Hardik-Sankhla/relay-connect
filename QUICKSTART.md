@@ -62,6 +62,9 @@ RELAY_TOKEN=dev-token relay deploy ./examples demo-server
 RELAY_TOKEN=dev-token relay ssh demo-server
 ```
 
+Note: `relay ssh demo-server` now auto-registers `demo-server` if it does not
+already exist in your config.
+
 ---
 
 ## Step 3 — Connect your Termux phone
