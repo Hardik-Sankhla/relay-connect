@@ -2,17 +2,23 @@
 
 **Dead-simple, secure remote connections and deploys. Zero open ports. Zero stored passwords.**
 
+## 30-second setup
+
+### On your laptop (Windows/Mac/Linux):
 ```bash
 pip install relay-connect
-
-relay server start                        # start the mediator (once)
-relay-agent --relay ws://HOST:8765 --name prod-1   # on each server/phone
-
-relay add prod-1
-relay ssh prod-1                          # interactive shell
-relay deploy ./dist prod-1               # push files
-relay exec prod-1 "systemctl restart app"
+relay wizard
 ```
+
+### On your Android phone (Termux):
+```bash
+pkg install python
+pip install git+https://github.com/Hardik-Sankhla/relay-connect.git
+relay wizard
+```
+
+That's it. Follow the on-screen instructions. The wizard handles tokens, IPs,
+firewall guidance, and QR codes automatically.
 
 ---
 
@@ -56,17 +62,12 @@ Every deploy today is:
 ## Installation
 
 ```bash
-# Standard install (dev/testing)
 pip install relay-connect
-
-# Secure install (recommended for production)
-pip install "relay-connect[crypto]"
 ```
 
-Requirements: Python 3.10+, `websockets`, `click`
+Requirements: Python 3.10+, `websockets`, `click`, `cryptography`
 
-Security note: Without `cryptography`, relay-connect falls back to a test-only
-HMAC signing mode. This is fine for local testing but not for production.
+Termux note: cryptography wheels are available for Android; no Rust toolchain required.
 
 ---
 
@@ -99,11 +100,10 @@ relay ssh prod-1
 If you want the simplest path for a non-technical user, run:
 
 ```bash
-relay setup --termux
+relay wizard
 ```
 
-This prints copy-paste steps for starting the relay, installing the agent on
-Termux, and connecting from your laptop.
+This starts an interactive setup and shows a QR code to connect your phone.
 
 ---
 
@@ -113,8 +113,8 @@ This replaces the manual `ssh -p 8022 u0_a352@192.168.1.37` workflow.
 
 **On Termux (your phone):**
 ```bash
-pkg install python
-pip install relay-connect
+pkg install python git
+python -m pip install git+https://github.com/Hardik-Sankhla/relay-connect.git
 relay-agent --relay ws://YOUR_LAPTOP_IP:8765 --name my-phone --tags termux
 ```
 
@@ -371,6 +371,10 @@ Open the project in VS Code. The `.vscode/` directory includes:
 ## Architecture deep-dive
 
 See `docs/ARCHITECTURE.md` for full design rationale, message flow diagrams, and extension points.
+
+## Beginner guide
+
+See `docs/NOOB_GUIDE.md` for a step-by-step walkthrough with troubleshooting.
 
 ---
 

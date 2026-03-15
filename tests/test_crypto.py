@@ -3,12 +3,7 @@
 import time
 import pytest
 
-# Skip if cryptography not installed but still test fallback path
-try:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    CRYPTO_OK = True
-except ImportError:
-    CRYPTO_OK = False
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from relay.crypto import SessionCert
 
@@ -18,10 +13,8 @@ from relay.crypto import SessionCert
 # ---------------------------------------------------------------------------
 
 def make_test_key():
-    """Return a signing key for tests — real Ed25519 or bytes fallback."""
-    if CRYPTO_OK:
-        return Ed25519PrivateKey.generate()
-    return b"test-fallback-key-32-bytes-padded"
+    """Return a signing key for tests."""
+    return Ed25519PrivateKey.generate()
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +73,12 @@ class TestSessionCert:
         p2 = cert._payload_bytes()
         assert p1 == p2
 
-    @pytest.mark.skipif(not CRYPTO_OK, reason="cryptography not installed")
     def test_verify_valid_cert(self):
         key = Ed25519PrivateKey.generate()
         pub = key.public_key()
         cert = SessionCert.issue("srv", "cli", key)
         assert cert.verify(pub)
 
-    @pytest.mark.skipif(not CRYPTO_OK, reason="cryptography not installed")
     def test_verify_tampered_cert_fails(self):
         key = Ed25519PrivateKey.generate()
         pub = key.public_key()
@@ -96,14 +87,12 @@ class TestSessionCert:
         cert.agent_name = "evil-server"
         assert not cert.verify(pub)
 
-    @pytest.mark.skipif(not CRYPTO_OK, reason="cryptography not installed")
     def test_verify_wrong_key_fails(self):
         key1 = Ed25519PrivateKey.generate()
         key2 = Ed25519PrivateKey.generate()
         cert = SessionCert.issue("srv", "cli", key1)
         assert not cert.verify(key2.public_key())
 
-    @pytest.mark.skipif(not CRYPTO_OK, reason="cryptography not installed")
     def test_verify_expired_cert_fails(self):
         key = Ed25519PrivateKey.generate()
         pub = key.public_key()

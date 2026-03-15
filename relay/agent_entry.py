@@ -4,6 +4,7 @@ import click
 import os
 from pathlib import Path
 from relay.agent import RelayAgent
+from relay.config import DEFAULT_DEPLOY_PATH
 from relay import __version__
 
 
@@ -12,10 +13,11 @@ from relay import __version__
 @click.option("--relay", "relay_url", default="ws://localhost:8765", help="Relay server URL")
 @click.option("--name", required=True, help="Agent name (must match profile on client)")
 @click.option("--tags", default="", help="Comma-separated tags")
-@click.option("--deploy-base", default="/tmp/relay-deploy", help="Base directory for deployments")
+@click.option("--deploy-base", default=DEFAULT_DEPLOY_PATH, help="Base directory for deployments")
 @click.option("--pubkey", default="", help="Path to relay server public key PEM")
 @click.option("--debug", is_flag=True, default=False)
-def main(relay_url, name, tags, deploy_base, pubkey, debug):
+@click.option("--persistent", is_flag=True, default=False, help="Reconnect forever and remember relay URL")
+def main(relay_url, name, tags, deploy_base, pubkey, debug, persistent):
     """
     Start the relay agent on this machine.
 
@@ -37,6 +39,7 @@ def main(relay_url, name, tags, deploy_base, pubkey, debug):
         tags=tag_list,
         deploy_base=deploy_base,
         relay_pubkey_path=Path(pubkey) if pubkey else None,
+        persistent=persistent,
     )
     click.echo(f"  Starting relay-agent '{name}' → {relay_url}")
     click.echo(f"  Deploy base: {deploy_base}")

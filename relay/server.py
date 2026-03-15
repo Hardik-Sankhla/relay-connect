@@ -39,6 +39,7 @@ except ImportError:
 
 from relay import protocol as proto
 from relay.crypto import SessionCert, generate_keypair, load_private_key
+from relay.config import DEFAULT_DEPLOY_PATH
 from relay.exceptions import AuthError
 
 logger = logging.getLogger("relay.server")
@@ -114,8 +115,12 @@ class RelayServer:
         self._clients: Dict[str, ClientConnection] = {}
         self._sessions: Dict[str, Session] = {}
 
-        # pending: session_id → (client_ws, agent_name)
-        self._pending: Dict[str, object] = {}
+        # pending maps for routing
+        self._tunnel_pending: Dict[str, object] = {}
+        self._exec_pending: Dict[str, object] = {}
+        self._deploy_pending: Dict[str, object] = {}
+        self._shell_clients: Dict[str, object] = {}
+        self._shell_agents: Dict[str, object] = {}
 
         self._signing_key = None
         self._public_key = None
@@ -214,8 +219,8 @@ class RelayServer:
 
                 elif mtype == proto.MsgType.AGENT_READY:
                     session_id = msg.get("session_id", "")
-                    if session_id in self._pending:
-                        client_ws = self._pending.pop(session_id)
+                    if session_id in self._tunnel_pending:
+                        client_ws = self._tunnel_pending.pop(session_id)
                         agent.session_ids.add(session_id)
                         await client_ws.send(proto.tunnel_ready(session_id, agent_name))
                         logger.info("Tunnel ready: session=%s agent=%s", session_id, agent_name)
@@ -224,7 +229,40 @@ class RelayServer:
                 elif mtype == proto.MsgType.EXEC_OUTPUT:
                     # Forward execution output back to any waiting client
                     session_id = msg.get("session_id", "")
-                    await self._forward_to_client(session_id, raw)
+                    client_ws = self._exec_pending.pop(session_id, None)
+                    if client_ws:
+                        await self._forward_raw(client_ws, raw)
+
+                elif mtype == proto.MsgType.DEPLOY_ACK:
+                    session_id = msg.get("session_id", "")
+                    client_ws = self._deploy_pending.get(session_id)
+                    if client_ws:
+                        await self._forward_raw(client_ws, raw)
+
+                elif mtype == proto.MsgType.DEPLOY_DONE:
+                    session_id = msg.get("session_id", "")
+                    client_ws = self._deploy_pending.pop(session_id, None)
+                    if client_ws:
+                        await self._forward_raw(client_ws, raw)
+
+                elif mtype == proto.MsgType.SHELL_READY:
+                    session_id = msg.get("session_id", "")
+                    client_ws = self._shell_clients.get(session_id)
+                    if client_ws:
+                        await self._forward_raw(client_ws, raw)
+
+                elif mtype == proto.MsgType.SHELL_DATA:
+                    session_id = msg.get("session_id", "")
+                    client_ws = self._shell_clients.get(session_id)
+                    if client_ws:
+                        await self._forward_raw(client_ws, raw)
+
+                elif mtype == proto.MsgType.SHELL_EXIT:
+                    session_id = msg.get("session_id", "")
+                    client_ws = self._shell_clients.pop(session_id, None)
+                    self._shell_agents.pop(session_id, None)
+                    if client_ws:
+                        await self._forward_raw(client_ws, raw)
 
         except Exception as e:
             logger.info("Agent '%s' disconnected: %s", agent_name, e)
@@ -241,7 +279,11 @@ class RelayServer:
         token = auth_msg.get("token", "")
 
         if self.require_auth and token != self.token:
-            await ws.send(proto.auth_fail("Invalid token"))
+            prefix = (token or "")[:8]
+            await ws.send(proto.auth_fail(
+                "Wrong token. Make sure RELAY_TOKEN matches on both machines. "
+                f"Your token: {prefix}..."
+            ))
             logger.warning("Auth failed for client_id=%s", client_id)
             self._audit("AUTH_FAIL", {"client_id": client_id})
             return
@@ -303,6 +345,23 @@ class RelayServer:
             cert_dict = msg.get("cert", {})
             await self._forward_deploy(conn, agent_name, cert_dict, msg)
 
+        elif mtype == proto.MsgType.SHELL_OPEN:
+            agent_name = msg.get("agent_name", "")
+            cert_dict = msg.get("cert", {})
+            await self._open_shell(conn, agent_name, cert_dict, msg)
+
+        elif mtype == proto.MsgType.SHELL_DATA:
+            session_id = msg.get("session_id", "")
+            agent_ws = self._shell_agents.get(session_id)
+            if agent_ws:
+                await self._forward_raw(agent_ws, raw)
+
+        elif mtype == proto.MsgType.SHELL_RESIZE:
+            session_id = msg.get("session_id", "")
+            agent_ws = self._shell_agents.get(session_id)
+            if agent_ws:
+                await self._forward_raw(agent_ws, raw)
+
     async def _open_tunnel(self, conn: ClientConnection, agent_name: str, cert_dict: dict):
         if agent_name not in self._agents:
             await conn.ws.send(proto.tunnel_fail(f"Agent '{agent_name}' not connected"))
@@ -317,7 +376,7 @@ class RelayServer:
         agent = self._agents[agent_name]
 
         # register pending tunnel (agent will call AGENT_READY to complete)
-        self._pending[session_id] = conn.ws
+        self._tunnel_pending[session_id] = conn.ws
         self._sessions[session_id] = Session(
             session_id=session_id,
             client_id=conn.client_id,
@@ -342,7 +401,7 @@ class RelayServer:
         session_id = cert.session_id
 
         # store client ws for reply routing
-        self._pending[session_id] = conn.ws
+        self._exec_pending[session_id] = conn.ws
 
         msg = proto.make(proto.MsgType.EXEC_CMD, session_id=session_id, command=command)
         await agent.ws.send(msg)
@@ -366,12 +425,12 @@ class RelayServer:
             chunk_index=msg.get("chunk_index", 0),
             total_chunks=msg.get("total_chunks", 1),
             data_b64=msg.get("data_b64", ""),
-            deploy_path=msg.get("deploy_path", "/tmp/relay-deploy"),
+            deploy_path=msg.get("deploy_path", DEFAULT_DEPLOY_PATH),
             post_deploy=msg.get("post_deploy", ""),
         )
         await agent.ws.send(fwd)
-        # ACK the client
-        await conn.ws.send(proto.make(proto.MsgType.DEPLOY_ACK, chunk_index=msg.get("chunk_index", 0)))
+        # Track deploy sessions separately for ACK/DONE routing
+        self._deploy_pending[cert.session_id] = conn.ws
 
         if msg.get("chunk_index", 0) == msg.get("total_chunks", 1) - 1:
             self._audit("DEPLOY", {
@@ -381,13 +440,35 @@ class RelayServer:
                 "chunks": msg.get("total_chunks", 1),
             })
 
-    async def _forward_to_client(self, session_id: str, raw: str):
-        client_ws = self._pending.get(session_id)
-        if client_ws:
-            try:
-                await client_ws.send(raw)
-            except Exception:
-                pass
+    async def _open_shell(self, conn: ClientConnection, agent_name: str, cert_dict: dict, msg: dict):
+        if agent_name not in self._agents:
+            await conn.ws.send(proto.error("AGENT_NOT_FOUND", f"Agent '{agent_name}' not connected"))
+            return
+        cert = SessionCert.from_dict(cert_dict)
+        if not cert.is_valid():
+            await conn.ws.send(proto.error("CERT_EXPIRED", "Certificate expired"))
+            return
+
+        session_id = cert.session_id
+        agent = self._agents[agent_name]
+
+        self._shell_clients[session_id] = conn.ws
+        self._shell_agents[session_id] = agent.ws
+
+        await agent.ws.send(proto.make(
+            proto.MsgType.SHELL_OPEN,
+            session_id=session_id,
+            rows=msg.get("rows", 24),
+            cols=msg.get("cols", 80),
+            term=msg.get("term", "xterm-256color"),
+        ))
+        self._audit("SHELL_OPEN", {"client": conn.client_id, "agent": agent_name, "session": session_id})
+
+    async def _forward_raw(self, client_ws, raw: str):
+        try:
+            await client_ws.send(raw)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Start / stop

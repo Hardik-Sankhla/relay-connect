@@ -20,8 +20,11 @@ Relay → Client:
   TUNNEL_FAIL   {type, reason}
   AGENT_LIST    {type, agents: [{name, connected_at, tags}]}
   DEPLOY_ACK    {type, chunk_index}
-  DEPLOY_DONE   {type, path, bytes_written}
+    DEPLOY_DONE   {type, path, bytes_written, sha256}
   EXEC_OUTPUT   {type, stdout, stderr, exit_code}
+    SHELL_READY   {type, session_id}
+    SHELL_DATA    {type, session_id, data_b64}
+    SHELL_EXIT    {type, session_id, exit_code}
   ERROR         {type, code, reason}
   PONG          {type}
 
@@ -35,6 +38,9 @@ Relay → Agent:
   ROUTE         {type, session_id, client_id, cert}
   DEPLOY_CHUNK  {type, session_id, filename, chunk_index, total_chunks, data_b64}
   EXEC_CMD      {type, session_id, command}
+    SHELL_OPEN    {type, session_id, rows, cols, term}
+    SHELL_DATA    {type, session_id, data_b64}
+    SHELL_RESIZE  {type, session_id, rows, cols}
   DISCONNECT    {type, session_id, reason}
 """
 
@@ -64,6 +70,9 @@ class MsgType(str, Enum):
     DEPLOY_ACK = "DEPLOY_ACK"
     DEPLOY_DONE = "DEPLOY_DONE"
     EXEC_OUTPUT = "EXEC_OUTPUT"
+    SHELL_READY = "SHELL_READY"
+    SHELL_DATA = "SHELL_DATA"
+    SHELL_EXIT = "SHELL_EXIT"
     ERROR = "ERROR"
     PONG = "PONG"
 
@@ -77,6 +86,8 @@ class MsgType(str, Enum):
     ROUTE = "ROUTE"
     DEPLOY_CHUNK = "DEPLOY_CHUNK"
     EXEC_CMD = "EXEC_CMD"
+    SHELL_OPEN = "SHELL_OPEN"
+    SHELL_RESIZE = "SHELL_RESIZE"
     DISCONNECT = "DISCONNECT"
 
 
@@ -154,6 +165,26 @@ def exec_cmd(session_id: str, command: str) -> str:
 
 def exec_output(stdout: str, stderr: str, exit_code: int) -> str:
     return make(MsgType.EXEC_OUTPUT, stdout=stdout, stderr=stderr, exit_code=exit_code)
+
+
+def shell_open(agent_name: str, cert_dict: dict, rows: int, cols: int, term: str) -> str:
+    return make(MsgType.SHELL_OPEN, agent_name=agent_name, cert=cert_dict, rows=rows, cols=cols, term=term)
+
+
+def shell_ready(session_id: str) -> str:
+    return make(MsgType.SHELL_READY, session_id=session_id)
+
+
+def shell_data(session_id: str, data_b64: str) -> str:
+    return make(MsgType.SHELL_DATA, session_id=session_id, data_b64=data_b64)
+
+
+def shell_resize(session_id: str, rows: int, cols: int) -> str:
+    return make(MsgType.SHELL_RESIZE, session_id=session_id, rows=rows, cols=cols)
+
+
+def shell_exit(session_id: str, exit_code: int) -> str:
+    return make(MsgType.SHELL_EXIT, session_id=session_id, exit_code=exit_code)
 
 
 def error(code: str, reason: str) -> str:

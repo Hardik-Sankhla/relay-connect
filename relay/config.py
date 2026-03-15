@@ -15,6 +15,7 @@ Each named "server" entry stores:
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -22,10 +23,12 @@ from typing import Dict, List, Optional
 from relay.exceptions import ConfigError
 
 
-CONFIG_DIR = Path.home() / ".relay"
+_default_config_root = Path(os.environ.get("APPDATA", "")) if os.name == "nt" else None
+CONFIG_DIR = (_default_config_root / "relay" if _default_config_root else Path.home() / ".relay")
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_RELAY_URL = "ws://localhost:8765"
+DEFAULT_DEPLOY_PATH = str(Path(tempfile.gettempdir()) / "relay-deploy")
 
 
 @dataclass
@@ -34,7 +37,7 @@ class ServerProfile:
     relay_url: str = DEFAULT_RELAY_URL
     agent_name: str = ""          # auto-set to name if empty
     client_id: str = ""
-    deploy_path: str = "/tmp/relay-deploy"
+    deploy_path: str = DEFAULT_DEPLOY_PATH
     post_deploy: str = ""
     ssh_user: str = ""
     tags: List[str] = field(default_factory=list)

@@ -132,6 +132,42 @@ class TestHelpCommand:
         assert result.exit_code == 0
 
 
+class TestWizardCommand:
+    def test_wizard_dry_run(self, isolated, monkeypatch):
+        runner, tmp_path = isolated
+        import relay.cli as cli_mod
+        import relay.config as cfg_mod
+        monkeypatch.setattr(cli_mod, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+        result = runner.invoke(cli, ["wizard", "--dry-run"])
+        assert result.exit_code == 0
+        assert "wizard" in result.output.lower()
+
+
+class TestDoctorCommand:
+    def test_doctor_runs(self, isolated, monkeypatch):
+        runner, tmp_path = isolated
+
+        class DummyClient:
+            def __init__(self, *args, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def ping(self):
+                return 0.01
+            async def list_agents(self):
+                return []
+
+        import relay.client as client_mod
+        monkeypatch.setattr(client_mod, "RelayClient", DummyClient)
+
+        result = runner.invoke(cli, ["doctor", "--relay", "ws://localhost:8765"])
+        assert result.exit_code == 0
+        assert "doctor" in result.output.lower()
+
+
 class TestExecCommand:
     def test_exec_unknown_server(self, isolated):
         runner, tmp_path = isolated
@@ -157,7 +193,7 @@ class TestExecCommand:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.exec = mock_exec
 
-        with patch("relay.cli.RelayClient", return_value=mock_client):
+        with patch("relay.client.RelayClient", return_value=mock_client):
             result = runner.invoke(cli, ["exec", "test-srv", "uptime"])
         assert "12:00:00" in result.output
 

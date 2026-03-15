@@ -17,8 +17,14 @@ Commands:
 """
 
 import asyncio
+import json
 import logging
 import os
+import platform
+import secrets
+import shutil
+import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -35,6 +41,8 @@ from relay.config import (
     remove_server,
     ServerProfile,
     save_config,
+    DEFAULT_DEPLOY_PATH,
+    CONFIG_DIR,
 )
 from relay.exceptions import RelayError
 
@@ -73,6 +81,62 @@ def _get_local_ipv4() -> str:
             return s.getsockname()[0]
     except Exception:
         return "127.0.0.1"
+
+
+def _is_termux() -> bool:
+    return bool(os.environ.get("TERMUX_VERSION") or "com.termux" in os.environ.get("PREFIX", ""))
+
+
+def _has_display() -> bool:
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or os.name == "nt")
+
+
+def _open_firewall(port: int) -> None:
+    if _is_windows():
+        result = subprocess.run(
+            [
+                "netsh",
+                "advfirewall",
+                "firewall",
+                "add",
+                "rule",
+                "name=relay-connect",
+                "dir=in",
+                "action=allow",
+                "protocol=TCP",
+                f"localport={port}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            _info("⚠ Could not open firewall automatically. Run this as Administrator:")
+            _info("netsh advfirewall firewall add rule name=relay-connect dir=in action=allow protocol=TCP localport=8765")
+        return
+
+    if platform.system() == "Linux":
+        if shutil.which("ufw"):
+            status = subprocess.run(["ufw", "status"], capture_output=True, text=True)
+            if "Status: active" in status.stdout:
+                subprocess.run(["ufw", "allow", f"{port}/tcp"], check=False)
+        return
+
+    if platform.system() == "Darwin":
+        _info("macOS firewall: run one of these (admin):")
+        _info(f"sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(which relay)")
+        _info(f"sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp $(which relay)")
+
+
+def _print_qr(payload: str) -> None:
+    try:
+        import qrcode
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(payload)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+    except Exception:
+        _info("QR code unavailable — copy this string to your phone:")
+        click.echo(payload)
 
 
 def _is_windows() -> bool:
@@ -149,6 +213,238 @@ def setup_cmd(termux: bool, agent_name: str, tags: str, relay_port: int):
         _info("\nTip: add --termux for a guided phone setup")
 
 
+@cli.command("wizard")
+@click.option("--port", default=8765, help="Relay server port")
+@click.option("--agent-name", default="", help="Suggested agent name")
+@click.option("--dry-run", is_flag=True, default=False, help="Show actions without executing")
+def wizard_cmd(port: int, agent_name: str, dry_run: bool):
+    """One-command setup for beginners (auto config + QR)."""
+    is_termux = _is_termux()
+
+    if is_termux:
+        _wizard_termux(port=port, agent_name=agent_name, dry_run=dry_run)
+        return
+
+    # Laptop/server role
+    token = secrets.token_urlsafe(24)
+    local_ip = _get_local_ipv4()
+    name = agent_name or socket.gethostname()
+    relay_url = f"ws://{local_ip}:{port}"
+
+    _bold("\nrelay-connect wizard")
+    _info(f"Detected role: laptop/server")
+    _info(f"Relay URL: {relay_url}")
+
+    # Save env
+    env_path = CONFIG_DIR / ".env"
+    if not dry_run:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(
+            f"RELAY_TOKEN={token}\nRELAY_URL={relay_url}\nRELAY_CLIENT_ID={socket.gethostname()}\n"
+        )
+    _success(f"Saved {env_path}")
+
+    # Start server
+    if not dry_run:
+        cmd = [sys.executable, "-m", "relay", "server", "start", "--host", "0.0.0.0", "--port", str(port)]
+        env = os.environ.copy()
+        env["RELAY_TOKEN"] = token
+        if _is_windows():
+            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            subprocess.Popen(cmd, env=env, creationflags=flags)
+        else:
+            subprocess.Popen(cmd, env=env, start_new_session=True)
+    _success("Relay server started in background")
+
+    # Firewall
+    if not dry_run:
+        _open_firewall(port)
+
+    payload = f"relay-connect://{local_ip}:{port}?token={token}&name={name}"
+    _bold("\nScan this QR on your phone:")
+    _print_qr(payload)
+    click.echo(f"\n{payload}\n")
+
+    _info("On your phone, run: relay wizard")
+
+
+def _wizard_termux(port: int, agent_name: str, dry_run: bool):
+    _bold("\nrelay-connect wizard (Termux)")
+    _info("Paste the QR string from your laptop (or scan it):")
+    payload = click.prompt("  relay-connect://...", prompt_suffix=" ")
+
+    try:
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(payload)
+        token = parse_qs(parsed.query).get("token", [""])[0]
+        name = parse_qs(parsed.query).get("name", [""])[0]
+        host = parsed.hostname or ""
+        port = parsed.port or port
+    except Exception:
+        _fail("Could not parse QR string. Make sure it starts with relay-connect://")
+        sys.exit(1)
+
+    if not (host and token):
+        _fail("Missing host or token in QR string")
+        sys.exit(1)
+
+    agent_name = agent_name or name or "my-phone"
+    relay_url = f"ws://{host}:{port}"
+
+    if not dry_run:
+        _termux_install_if_needed()
+
+        # Save env for convenience
+        env_path = Path.home() / ".relay" / ".env"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(f"RELAY_TOKEN={token}\nRELAY_URL={relay_url}\n")
+
+        _termux_boot_script(relay_url, token, agent_name)
+
+        if shutil.which("termux-wake-lock"):
+            subprocess.run(["termux-wake-lock"], check=False)
+
+    _success("Termux setup complete")
+    _info("Starting agent now...")
+    if not dry_run:
+        os.environ["RELAY_TOKEN"] = token
+        subprocess.run(["relay-agent", "--relay", relay_url, "--name", agent_name, "--tags", "termux"], check=False)
+
+
+def _termux_install_if_needed():
+    if shutil.which("pkg"):
+        subprocess.run(["pkg", "install", "-y", "python", "git"], check=False)
+    pip_cmd = [sys.executable, "-m", "pip", "install"]
+    if _is_termux():
+        pip_cmd.append("--break-system-packages")
+    subprocess.run(pip_cmd + ["--upgrade", "pip", "setuptools", "wheel"], check=False)
+    subprocess.run(pip_cmd + ["git+https://github.com/Hardik-Sankhla/relay-connect.git"], check=False)
+
+
+def _termux_boot_script(relay_url: str, token: str, agent_name: str):
+    boot_dir = Path.home() / ".termux" / "boot"
+    boot_dir.mkdir(parents=True, exist_ok=True)
+    script = boot_dir / "relay-agent.sh"
+    script.write_text(
+        "#!/data/data/com.termux/files/usr/bin/bash\n"
+        f"export RELAY_TOKEN=\"{token}\"\n"
+        f"exec relay-agent --relay \"{relay_url}\" --name \"{agent_name}\" --tags \"termux\" --persistent\n"
+    )
+    script.chmod(0o755)
+
+
+@cli.command("termux-setup")
+@click.option("--relay", "relay_url", default="", help="Relay server URL")
+@click.option("--name", "agent_name", default="my-phone", help="Agent name")
+@click.option("--token", default="", help="Relay token")
+def termux_setup_cmd(relay_url: str, agent_name: str, token: str):
+    """Automate Termux setup (install + autostart)."""
+    if not _is_termux():
+        _fail("This command is for Termux on Android.")
+        sys.exit(1)
+
+    _termux_install_if_needed()
+    if relay_url and token:
+        _termux_boot_script(relay_url, token, agent_name)
+        if shutil.which("termux-wake-lock"):
+            subprocess.run(["termux-wake-lock"], check=False)
+        _success("Termux setup complete. Starting agent...")
+        os.environ["RELAY_TOKEN"] = token
+        subprocess.run(["relay-agent", "--relay", relay_url, "--name", agent_name, "--tags", "termux", "--persistent"], check=False)
+    else:
+        _info("Run: relay wizard  (on your phone) for QR-based setup")
+
+
+@cli.command("doctor")
+@click.option("--relay", "relay_url", default="", help="Relay server URL")
+def doctor_cmd(relay_url: str):
+    """Diagnose common setup problems."""
+    from relay import __version__
+    cfg = load_config()
+    relay_url = relay_url or cfg.default_relay_url
+    _bold("\nrelay doctor")
+
+    def check(label: str, ok: bool, fix: str = ""):
+        mark = "✓" if ok else "✗"
+        click.echo(f"  {mark} {label}")
+        if not ok and fix:
+            click.echo(f"    {fix}")
+
+    check("Python >= 3.10", sys.version_info >= (3, 10))
+    try:
+        import websockets  # noqa: F401
+        websockets_ok = True
+    except Exception:
+        websockets_ok = False
+    check("websockets installed", websockets_ok, "pip install websockets")
+    try:
+        import cryptography  # noqa: F401
+        crypto_ok = True
+    except Exception:
+        crypto_ok = False
+    check("cryptography installed", crypto_ok, "pip install cryptography")
+    check("Config exists", (CONFIG_DIR / "config.json").exists(), "Run: relay init")
+
+    # DNS + TCP
+    try:
+        host = relay_url.split("//", 1)[-1].split(":", 1)[0]
+        socket.gethostbyname(host)
+        dns_ok = True
+    except Exception:
+        dns_ok = False
+    check("Relay hostname resolves", dns_ok, "Check relay URL / DNS")
+
+    try:
+        host_port = relay_url.split("//", 1)[-1]
+        host, port = host_port.split(":")
+        port = int(port)
+        sock = socket.create_connection((host, port), timeout=3)
+        sock.close()
+        tcp_ok = True
+    except Exception:
+        tcp_ok = False
+    check("TCP connect to relay", tcp_ok, "Check relay server + firewall")
+
+    # WebSocket auth
+    auth_ok = False
+    try:
+        async def _auth_check():
+            from relay.client import RelayClient
+            async with RelayClient(relay_url=relay_url, client_id=cfg.client_id, token=os.environ.get("RELAY_TOKEN", "")) as rc:
+                await rc.ping()
+        asyncio.run(_auth_check())
+        auth_ok = True
+    except Exception:
+        auth_ok = False
+    check("WebSocket auth", auth_ok, "Check RELAY_TOKEN matches on both machines")
+
+    # Agent online
+    agents_ok = False
+    try:
+        async def _agent_check():
+            from relay.client import RelayClient
+            async with RelayClient(relay_url=relay_url, client_id=cfg.client_id, token=os.environ.get("RELAY_TOKEN", "")) as rc:
+                agents = await rc.list_agents()
+                return len(agents) > 0
+        agents_ok = asyncio.run(_agent_check())
+    except Exception:
+        agents_ok = False
+    check("At least one agent online", agents_ok, "Run relay-agent on the remote machine")
+
+    if _is_windows():
+        result = subprocess.run(
+            ["netsh", "advfirewall", "firewall", "show", "rule", "name=relay-connect"],
+            capture_output=True,
+            text=True,
+        )
+        check("Windows firewall rule", result.returncode == 0, "Run as Admin: netsh advfirewall firewall add rule name=relay-connect dir=in action=allow protocol=TCP localport=8765")
+
+    if _is_termux():
+        boot_ok = (Path.home() / ".termux" / "boot" / "relay-agent.sh").exists()
+        check("Termux boot script", boot_ok, "Run: relay wizard (on phone)")
+        check("termux-wake-lock available", bool(shutil.which("termux-wake-lock")), "pkg install termux-api")
+
+
 # ---------------------------------------------------------------------------
 # relay add
 # ---------------------------------------------------------------------------
@@ -156,7 +452,7 @@ def setup_cmd(termux: bool, agent_name: str, tags: str, relay_port: int):
 @cli.command("add")
 @click.argument("name")
 @click.option("--relay-url", default="", help="Override relay URL for this server")
-@click.option("--deploy-path", default="/tmp/relay-deploy", help="Remote deploy directory")
+@click.option("--deploy-path", default=DEFAULT_DEPLOY_PATH, help="Remote deploy directory")
 @click.option("--post-deploy", default="", help="Shell command to run after deploy")
 @click.option("--ssh-user", default="", help="SSH user on remote server")
 @click.option("--tags", default="", help="Comma-separated tags")
@@ -413,6 +709,12 @@ def ssh_cmd(name: str, command: str):
     _info(f"Opening shell on '{name}' via relay...")
     _info("(Commands are forwarded through the relay — no direct SSH port needed)")
 
+    try:
+        import paramiko  # noqa: F401
+        paramiko_available = True
+    except Exception:
+        paramiko_available = False
+
     async def _ssh():
         from relay.client import RelayClient
         cfg = load_config()
@@ -430,25 +732,32 @@ def ssh_cmd(name: str, command: str):
                     click.echo(result.stderr, nl=False, err=True)
                 return result.exit_code
             else:
-                # Interactive shell simulation
+                if not paramiko_available:
+                    _info("⚠ Interactive mode limited — install relay-connect[ssh] for full PTY")
+                    click.echo(click.style(
+                        f"\n  [relay-shell: basic mode — install relay-connect[ssh] for full PTY]\n",
+                        fg="yellow",
+                    ))
+                    while True:
+                        try:
+                            cmd = click.prompt(f"  {name}$ ", prompt_suffix="")
+                        except (EOFError, KeyboardInterrupt):
+                            click.echo("\n  Disconnected.")
+                            break
+                        if cmd.strip() in ("exit", "quit"):
+                            click.echo("  Disconnected.")
+                            break
+                        if not cmd.strip():
+                            continue
+                        result = await rc.exec(name, cmd)
+                        if result.stdout:
+                            click.echo(result.stdout, nl=False)
+                        if result.stderr:
+                            click.echo(click.style(result.stderr, fg="yellow"), nl=False)
+                    return 0
+
                 click.echo(click.style(f"\n  Connected to '{name}'. Type 'exit' to quit.\n", fg="green"))
-                while True:
-                    try:
-                        cmd = click.prompt(f"  {name}$ ", prompt_suffix="")
-                    except (EOFError, KeyboardInterrupt):
-                        click.echo("\n  Disconnected.")
-                        break
-                    if cmd.strip() in ("exit", "quit"):
-                        click.echo("  Disconnected.")
-                        break
-                    if not cmd.strip():
-                        continue
-                    result = await rc.exec(name, cmd)
-                    if result.stdout:
-                        click.echo(result.stdout, nl=False)
-                    if result.stderr:
-                        click.echo(click.style(result.stderr, fg="yellow"), nl=False)
-                return 0
+                return await rc.shell(name)
 
     try:
         exit_code = _run(_ssh())

@@ -237,25 +237,54 @@ class TestDeploy:
             assert result.bytes_written > 0
 
     @pytest.mark.asyncio
+    async def test_deploy_writes_file_and_checksum(self, relay_with_agent, tmp_path):
+        _, url, _ = relay_with_agent
+        src = tmp_path / "payload.txt"
+        content = "hello relay"
+        src.write_text(content)
+
+        dest_dir = tmp_path / "dest"
+        dest_dir.mkdir()
+
+        async with RelayClient(url, TEST_CLIENT_ID, TEST_TOKEN) as rc:
+            result = await rc.deploy(
+                str(src),
+                TEST_AGENT_NAME,
+                deploy_path=str(dest_dir),
+                progress=False,
+            )
+
+        # Archive name is payload.txt.tar.gz
+        dest_file = dest_dir / (src.name + ".tar.gz")
+        assert dest_file.exists()
+        assert result.bytes_written > 0
+
+    @pytest.mark.asyncio
     async def test_deploy_with_post_hook(self, relay_with_agent, tmp_path):
         _, url, _ = relay_with_agent
         src = tmp_path / "data.txt"
         src.write_text("payload")
 
-        flag_path = tmp_path / "hook_ran.flag"
+        dest_dir = tmp_path / "deploy_dest"
+        dest_dir.mkdir()
+        flag_path = dest_dir / "hook_ran.flag"
 
-        with tempfile.TemporaryDirectory() as dest_dir:
-            async with RelayClient(url, TEST_CLIENT_ID, TEST_TOKEN) as rc:
-                result = await rc.deploy(
-                    str(src),
-                    TEST_AGENT_NAME,
-                    deploy_path=dest_dir,
-                    post_deploy=f"touch {flag_path}",
-                    progress=False,
-                )
-            # Give hook a moment to run
-            await asyncio.sleep(0.5)
-            assert flag_path.exists(), "Post-deploy hook should have created the flag file"
+        if os.name == "nt":
+            post_cmd = f'type nul > "{flag_path}"'
+        else:
+            post_cmd = f'touch "{flag_path}"'
+
+        async with RelayClient(url, TEST_CLIENT_ID, TEST_TOKEN) as rc:
+            result = await rc.deploy(
+                str(src),
+                TEST_AGENT_NAME,
+                deploy_path=str(dest_dir),
+                post_deploy=post_cmd,
+                progress=False,
+            )
+        # Give hook a moment to run
+        await asyncio.sleep(0.5)
+        assert flag_path.exists(), "Post-deploy hook should have created the flag file"
 
 
 # ---------------------------------------------------------------------------
@@ -288,3 +317,16 @@ class TestConcurrent:
         results = await asyncio.gather(*[client_task(i) for i in range(5)])
         for i, r in enumerate(results):
             assert f"client_{i}" in r
+
+    @pytest.mark.asyncio
+    async def test_exec_session_isolation(self, relay_with_agent):
+        _, url, _ = relay_with_agent
+
+        async def client_task(i: int) -> str:
+            async with RelayClient(url, f"iso-{i}", TEST_TOKEN) as rc:
+                result = await rc.exec(TEST_AGENT_NAME, f"echo iso_{i}")
+                return result.stdout.strip()
+
+        results = await asyncio.gather(*[client_task(i) for i in range(8)])
+        for i, r in enumerate(results):
+            assert r == f"iso_{i}"

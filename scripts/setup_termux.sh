@@ -26,8 +26,8 @@ echo "  ✓ Python: $(python --version)"
 # ── 2. Install relay-connect ──
 echo ""
 echo "  [2/4] Installing relay-connect..."
-pip install relay-connect --quiet 2>/dev/null || \
-  pip install websockets cryptography click --quiet
+python -m pip install --upgrade pip setuptools wheel --quiet 2>/dev/null || true
+python -m pip install git+https://github.com/Hardik-Sankhla/relay-connect.git --quiet
 echo "  ✓ relay-connect installed"
 
 # ── 3. Create start script ──

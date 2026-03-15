@@ -64,16 +64,14 @@ class SessionCert:
             session_id=session_id,
         )
         payload = cert._payload_bytes()
-        if CRYPTO_AVAILABLE and not isinstance(signing_key, bytes):
-            raw_sig = signing_key.sign(payload)
-            cert.signature = base64.urlsafe_b64encode(raw_sig).decode()
-        else:
-            # Fallback: HMAC-SHA256 using key bytes (testing only — not production)
-            import hmac as _hmac
-            key_bytes = signing_key if isinstance(signing_key, bytes) else b"test-key"
-            cert.signature = base64.urlsafe_b64encode(
-                _hmac.new(key_bytes, payload, hashlib.sha256).digest()
-            ).decode()
+        if not CRYPTO_AVAILABLE:
+            raise RuntimeError(
+                "relay-connect requires the cryptography package. "
+                "Run: pip install relay-connect[crypto] "
+                "On Termux: pip install cryptography"
+            )
+        raw_sig = signing_key.sign(payload)
+        cert.signature = base64.urlsafe_b64encode(raw_sig).decode()
         return cert
 
     def is_valid(self) -> bool:
@@ -86,14 +84,17 @@ class SessionCert:
         payload = self._payload_bytes()
         sig = base64.urlsafe_b64decode(self.signature + "==")
         try:
-            if CRYPTO_AVAILABLE and not isinstance(public_key, bytes):
-                from cryptography.exceptions import InvalidSignature as _IS
-                try:
-                    public_key.verify(sig, payload)
-                except _IS:
-                    return False
-            # HMAC fallback (test-only)
-            # In dev/test mode without cryptography, certs are accepted if valid
+            if not CRYPTO_AVAILABLE:
+                raise RuntimeError(
+                    "relay-connect requires the cryptography package. "
+                    "Run: pip install relay-connect[crypto] "
+                    "On Termux: pip install cryptography"
+                )
+            from cryptography.exceptions import InvalidSignature as _IS
+            try:
+                public_key.verify(sig, payload)
+            except _IS:
+                return False
             return True
         except Exception:
             return False
@@ -130,7 +131,9 @@ def generate_keypair(save_dir: Optional[Path] = None, name: str = "relay") -> tu
     """
     if not CRYPTO_AVAILABLE:
         raise RuntimeError(
-            "cryptography package required. Run: pip install cryptography"
+            "relay-connect requires the cryptography package. "
+            "Run: pip install relay-connect[crypto] "
+            "On Termux: pip install cryptography"
         )
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()
@@ -163,13 +166,21 @@ def generate_keypair(save_dir: Optional[Path] = None, name: str = "relay") -> tu
 
 def load_private_key(path: Path) -> "Ed25519PrivateKey":
     if not CRYPTO_AVAILABLE:
-        raise RuntimeError("cryptography package required.")
+        raise RuntimeError(
+            "relay-connect requires the cryptography package. "
+            "Run: pip install relay-connect[crypto] "
+            "On Termux: pip install cryptography"
+        )
     return serialization.load_pem_private_key(Path(path).read_bytes(), password=None)
 
 
 def load_public_key(path: Path) -> "Ed25519PublicKey":
     if not CRYPTO_AVAILABLE:
-        raise RuntimeError("cryptography package required.")
+        raise RuntimeError(
+            "relay-connect requires the cryptography package. "
+            "Run: pip install relay-connect[crypto] "
+            "On Termux: pip install cryptography"
+        )
     return serialization.load_pem_public_key(Path(path).read_bytes())
 
 

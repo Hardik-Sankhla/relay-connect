@@ -16,7 +16,10 @@ Usage (sync wrapper):
 """
 
 import asyncio
+import sys
+import shutil
 import base64
+import hashlib
 import logging
 import os
 import tarfile
@@ -34,6 +37,7 @@ except ImportError:
 
 from relay import protocol as proto
 from relay.crypto import SessionCert
+from relay.config import DEFAULT_DEPLOY_PATH
 from relay.exceptions import (
     AgentNotFoundError,
     AuthError,
@@ -111,8 +115,25 @@ class RelayClient:
     async def connect(self):
         if not WEBSOCKETS_AVAILABLE:
             raise RuntimeError("websockets required: pip install websockets")
-        self._ws = await websockets.connect(self.relay_url, ping_interval=20)
-        await self._authenticate()
+        last_error = None
+        for attempt in range(2):
+            try:
+                self._ws = await websockets.connect(self.relay_url, ping_interval=20)
+                await self._authenticate()
+                return
+            except AuthError:
+                raise
+            except Exception as e:
+                last_error = e
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+        raise ConnectionError(
+            "Cannot reach relay server at URL. "
+            "Check: is 'relay server start' running on your laptop? "
+            "Check: are both devices on the same WiFi? "
+            "Check: is port 8765 blocked by firewall? "
+            "Run 'relay doctor' for automatic diagnosis."
+        ) from last_error
 
     async def disconnect(self):
         if self._ws:
@@ -125,7 +146,11 @@ class RelayClient:
         msg = proto.parse(raw)
         mtype = proto.msg_type(msg)
         if mtype == proto.MsgType.AUTH_FAIL:
-            raise AuthError(msg.get("reason", "Auth failed"))
+            prefix = (self.token or "")[:8]
+            raise AuthError(
+                "Wrong token. Make sure RELAY_TOKEN matches on both machines. "
+                f"Your token: {prefix}..."
+            )
         if mtype != proto.MsgType.AUTH_OK:
             raise AuthError(f"Unexpected response: {mtype}")
         logger.info("Authenticated as %s", self.client_id)
@@ -137,7 +162,7 @@ class RelayClient:
     async def get_cert(self, agent_name: str, force: bool = False) -> SessionCert:
         """Get (or reuse cached) session cert for an agent."""
         cached = self._cert_cache.get(agent_name)
-        if cached and cached.is_valid() and cached.time_remaining() > 60 and not force:
+        if cached and cached.is_valid() and cached.time_remaining() > 5 and not force:
             return cached
 
         await self._ws.send(proto.request_cert(agent_name))
@@ -146,7 +171,11 @@ class RelayClient:
         mtype = proto.msg_type(msg)
 
         if mtype == proto.MsgType.ERROR:
-            raise AgentNotFoundError(msg.get("reason", f"Agent '{agent_name}' not found"))
+            raise AgentNotFoundError(
+                f"Agent '{agent_name}' is not online. "
+                "Check: is relay-agent running on the remote machine? "
+                f"Run this on your phone: relay-agent --relay {self.relay_url} --name {agent_name}"
+            )
         if mtype != proto.MsgType.CERT_ISSUED:
             raise TunnelError(f"Expected CERT_ISSUED, got {mtype}")
 
@@ -192,7 +221,13 @@ class RelayClient:
 
         # Wait for output (may receive acks / other messages first)
         while True:
-            raw = await asyncio.wait_for(self._ws.recv(), timeout=self.timeout)
+            try:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=self.timeout)
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(
+                    "Connection timed out. This usually means a firewall is blocking port 8765. "
+                    "Run 'relay doctor' for help."
+                ) from exc
             reply = proto.parse(raw)
             mtype = proto.msg_type(reply)
             if mtype == proto.MsgType.EXEC_OUTPUT:
@@ -212,7 +247,7 @@ class RelayClient:
         self,
         local_path: str,
         agent_name: str,
-        deploy_path: str = "/tmp/relay-deploy",
+        deploy_path: str = DEFAULT_DEPLOY_PATH,
         post_deploy: str = "",
         progress: bool = True,
     ) -> DeployResult:
@@ -236,6 +271,7 @@ class RelayClient:
             else:
                 tf.add(local, arcname=local.name)
         data = buf.getvalue()
+        data_sha256 = hashlib.sha256(data).hexdigest()
         total_size = len(data)
 
         cert = await self.get_cert(agent_name)
@@ -267,10 +303,18 @@ class RelayClient:
             # Wait for ACK
             ack_received = False
             while not ack_received:
-                raw = await asyncio.wait_for(self._ws.recv(), timeout=60)
+                try:
+                    raw = await asyncio.wait_for(self._ws.recv(), timeout=60)
+                except asyncio.TimeoutError as exc:
+                    raise TimeoutError(
+                        "Connection timed out. This usually means a firewall is blocking port 8765. "
+                        "Run 'relay doctor' for help."
+                    ) from exc
                 reply = proto.parse(raw)
                 mtype = proto.msg_type(reply)
                 if mtype == proto.MsgType.DEPLOY_ACK:
+                    if reply.get("session_id") != cert.session_id:
+                        continue
                     ack_received = True
                     bytes_acked += len(chunk)
                     if progress:
@@ -280,6 +324,8 @@ class RelayClient:
                 elif mtype == proto.MsgType.DEPLOY_DONE:
                     if progress:
                         print()
+                    if reply.get("sha256") and reply.get("sha256") != data_sha256:
+                        raise DeployError("Deploy checksum mismatch — transfer corrupted")
                     elapsed = time.time() - start
                     return DeployResult(
                         path=reply.get("path", deploy_path),
@@ -291,12 +337,20 @@ class RelayClient:
 
         # Wait for DEPLOY_DONE
         while True:
-            raw = await asyncio.wait_for(self._ws.recv(), timeout=120)
+            try:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=120)
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(
+                    "Connection timed out. This usually means a firewall is blocking port 8765. "
+                    "Run 'relay doctor' for help."
+                ) from exc
             reply = proto.parse(raw)
             mtype = proto.msg_type(reply)
             if mtype == proto.MsgType.DEPLOY_DONE:
                 if progress:
                     print()
+                if reply.get("sha256") and reply.get("sha256") != data_sha256:
+                    raise DeployError("Deploy checksum mismatch — transfer corrupted")
                 elapsed = time.time() - start
                 return DeployResult(
                     path=reply.get("path", deploy_path),
@@ -325,6 +379,74 @@ class RelayClient:
                 raise TunnelError(msg.get("reason", "tunnel failed"))
             elif mtype == proto.MsgType.ERROR:
                 raise TunnelError(msg.get("reason", "error"))
+
+    # ------------------------------------------------------------------
+    # Interactive shell (PTY)
+    # ------------------------------------------------------------------
+
+    async def shell(self, agent_name: str, term: str = "xterm-256color") -> int:
+        """Open an interactive PTY shell to the agent."""
+        cert = await self.get_cert(agent_name)
+        cols, rows = shutil.get_terminal_size(fallback=(80, 24))
+
+        await self._ws.send(
+            proto.shell_open(agent_name, cert.to_dict(), rows=rows, cols=cols, term=term)
+        )
+
+        # Wait for SHELL_READY
+        while True:
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=self.timeout)
+            msg = proto.parse(raw)
+            if proto.msg_type(msg) == proto.MsgType.SHELL_READY:
+                session_id = msg.get("session_id", "")
+                break
+
+        loop = asyncio.get_running_loop()
+        exit_code = 0
+
+        async def recv_loop():
+            nonlocal exit_code
+            while True:
+                raw = await self._ws.recv()
+                msg = proto.parse(raw)
+                mtype = proto.msg_type(msg)
+                if mtype == proto.MsgType.SHELL_DATA and msg.get("session_id") == session_id:
+                    data = base64.b64decode(msg.get("data_b64", ""))
+                    sys.stdout.buffer.write(data)
+                    sys.stdout.buffer.flush()
+                elif mtype == proto.MsgType.SHELL_EXIT and msg.get("session_id") == session_id:
+                    exit_code = msg.get("exit_code", 0)
+                    return
+
+        async def send_loop():
+            if os.name == "nt":
+                import msvcrt
+                while True:
+                    ch = await loop.run_in_executor(None, msvcrt.getch)
+                    if ch in (b"\x03",):
+                        break
+                    await self._ws.send(proto.shell_data(session_id, base64.b64encode(ch).decode()))
+            else:
+                import termios
+                import tty
+                fd = sys.stdin.fileno()
+                old = termios.tcgetattr(fd)
+                try:
+                    tty.setraw(fd)
+                    while True:
+                        ch = await loop.run_in_executor(None, sys.stdin.buffer.read, 1)
+                        if not ch:
+                            break
+                        await self._ws.send(proto.shell_data(session_id, base64.b64encode(ch).decode()))
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        recv_task = asyncio.create_task(recv_loop())
+        send_task = asyncio.create_task(send_loop())
+        await asyncio.wait([recv_task, send_task], return_when=asyncio.FIRST_COMPLETED)
+        recv_task.cancel()
+        send_task.cancel()
+        return exit_code
 
     # ------------------------------------------------------------------
     # Sync convenience wrapper (for scripts)
