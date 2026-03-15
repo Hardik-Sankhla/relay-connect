@@ -42,6 +42,22 @@ class TestInitCommand:
         result = runner.invoke(cli, ["init", "--client-id", "my-laptop"])
         assert result.exit_code == 0
 
+    def test_cli_loads_saved_env_file(self, isolated, monkeypatch):
+        runner, tmp_path = isolated
+        import relay.cli as cli_mod
+        import relay.config as cfg_mod
+
+        monkeypatch.setattr(cli_mod, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(cfg_mod, "CONFIG_FILE", tmp_path / "config.json")
+        monkeypatch.delenv("RELAY_TOKEN", raising=False)
+
+        (tmp_path / ".env").write_text("RELAY_TOKEN=wizard-token\nRELAY_URL=ws://127.0.0.1:8765\n")
+        result = runner.invoke(cli, ["list"])
+
+        assert result.exit_code == 0
+        assert os.environ.get("RELAY_TOKEN") == "wizard-token"
+
 
 class TestAddCommand:
     def test_add_server(self, isolated):

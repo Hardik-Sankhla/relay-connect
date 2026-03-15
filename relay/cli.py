@@ -165,6 +165,23 @@ def _is_windows() -> bool:
     return os.name == "nt"
 
 
+def _load_saved_env() -> None:
+    """Load persisted relay env vars from ~/.relay/.env (or APPDATA\\relay\\.env on Windows)."""
+    env_path = CONFIG_DIR / ".env"
+    if not env_path.exists():
+        return
+
+    for raw in env_path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 # ---------------------------------------------------------------------------
 # Root group
 # ---------------------------------------------------------------------------
@@ -174,6 +191,7 @@ def _is_windows() -> bool:
 @click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
 def cli(debug: bool):
     """relay-connect — dead-simple secure remote connections."""
+    _load_saved_env()
     level = logging.DEBUG if debug else logging.WARNING
     logging.basicConfig(level=level, format="%(name)s %(levelname)s %(message)s")
 
