@@ -6,7 +6,7 @@
 
 ### On your laptop (Windows/Mac/Linux):
 ```bash
-pip install relay-connect
+python -m pip install git+https://github.com/Hardik-Sankhla/relay-connect.git
 relay wizard
 ```
 
@@ -86,13 +86,26 @@ Every deploy today is:
 
 ## Installation
 
+`relay-connect` is currently installed from GitHub source (not from PyPI).
+
+### Option A: Install from GitHub (recommended)
+
 ```bash
-pip install relay-connect
+python -m pip install git+https://github.com/Hardik-Sankhla/relay-connect.git
+```
+
+### Option B: Install from local clone (for contributors)
+
+```bash
+python -m pip install -e ".[dev]"
 ```
 
 Requirements: Python 3.10+, `websockets`, `click`, `cryptography`
 
 Termux note: cryptography wheels are available for Android; no Rust toolchain required.
+
+Windows note: if `relay` is not recognized right after install, open a new
+PowerShell window. In a project venv, use `.\\.venv\\Scripts\\relay.exe`.
 
 ---
 
