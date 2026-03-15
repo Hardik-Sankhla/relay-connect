@@ -64,6 +64,21 @@ def _bold(msg: str):
     click.echo(click.style(msg, bold=True))
 
 
+def _get_local_ipv4() -> str:
+    """Best-effort local IPv4 for LAN connectivity."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 # ---------------------------------------------------------------------------
 # Root group
 # ---------------------------------------------------------------------------
@@ -91,6 +106,47 @@ def init(relay_url: str, client_id: str):
     _info(f"Relay URL:  {cfg.default_relay_url}")
     _info(f"Client ID:  {cfg.client_id}")
     _info("Run 'relay add <name>' to register your first server")
+
+
+# ---------------------------------------------------------------------------
+# relay setup
+# ---------------------------------------------------------------------------
+
+@cli.command("setup")
+@click.option("--termux", is_flag=True, default=False, help="Show Termux-friendly steps")
+@click.option("--agent-name", default="my-phone", help="Agent name for phone/device")
+@click.option("--tags", default="termux", help="Comma-separated tags")
+@click.option("--relay-port", default=8765, help="Relay server port")
+def setup_cmd(termux: bool, agent_name: str, tags: str, relay_port: int):
+    """Guided setup for non-technical users."""
+    local_ip = _get_local_ipv4()
+    tag_list = ",".join([t.strip() for t in tags.split(",") if t.strip()]) or "termux"
+
+    _bold("\nrelay-connect setup")
+    _info("Step 1: start the relay server on your laptop")
+    if _is_windows():
+        click.echo(f"  $env:RELAY_TOKEN=\"dev-token\"")
+        click.echo(f"  relay server start --host 0.0.0.0 --port {relay_port}")
+        click.echo("\n  If the phone cannot connect, open the firewall (Admin PowerShell):")
+        click.echo(f"  New-NetFirewallRule -DisplayName \"relay-connect {relay_port}\" -Direction Inbound -Protocol TCP -LocalPort {relay_port} -Action Allow")
+    else:
+        click.echo(f"  export RELAY_TOKEN=dev-token")
+        click.echo(f"  relay server start --host 0.0.0.0 --port {relay_port}")
+
+    if termux:
+        _info("\nStep 2: install and start the agent on Termux")
+        click.echo("  pkg install -y python git")
+        click.echo("  python -m pip install --upgrade pip setuptools wheel")
+        click.echo("  python -m pip install git+https://github.com/Hardik-Sankhla/relay-connect.git")
+        click.echo(f"  relay-agent --relay ws://{local_ip}:{relay_port} --name {agent_name} --tags {tag_list}")
+
+        _info("\nStep 3: connect from your laptop")
+        click.echo(f"  relay add {agent_name} --tags {tag_list}")
+        click.echo("  relay status")
+        click.echo(f"  relay ssh {agent_name}")
+        _info("If status shows no agents online, confirm same Wi-Fi and firewall rules.")
+    else:
+        _info("\nTip: add --termux for a guided phone setup")
 
 
 # ---------------------------------------------------------------------------

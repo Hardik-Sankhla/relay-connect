@@ -94,6 +94,19 @@ relay ssh prod-1
 
 ---
 
+## Guided setup (Termux)
+
+If you want the simplest path for a non-technical user, run:
+
+```bash
+relay setup --termux
+```
+
+This prints copy-paste steps for starting the relay, installing the agent on
+Termux, and connecting from your laptop.
+
+---
+
 ## Connecting to Termux (Android)
 
 This replaces the manual `ssh -p 8022 u0_a352@192.168.1.37` workflow.

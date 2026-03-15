@@ -69,6 +69,14 @@ RELAY_TOKEN=dev-token relay ssh demo-server
 
 ## Step 3 — Connect your Termux phone
 
+The easiest path is a guided setup:
+
+```bash
+relay setup --termux
+```
+
+If you prefer manual steps, follow below.
+
 **On your phone in Termux:**
 ```bash
 pkg install python git
