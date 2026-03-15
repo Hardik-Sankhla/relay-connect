@@ -7,9 +7,14 @@ Get from zero to a working relay tunnel in under 5 minutes.
 ## Step 1 — Install
 
 ```bash
-# From the unzipped folder:
+# From the repo folder:
 cd relay-connect
+
+# Dev install (no crypto)
 pip install -e ".[dev]"
+
+# Secure dev install (recommended for production-like testing)
+pip install -e ".[dev,crypto]"
 
 # Verify:
 relay --version
@@ -66,8 +71,14 @@ RELAY_TOKEN=dev-token relay ssh demo-server
 
 **On your phone in Termux:**
 ```bash
-pkg install python
-pip install relay-connect
+pkg install python git
+
+# Install from GitHub (project is not on PyPI yet)
+python -m pip install git+https://github.com/Hardik-Sankhla/relay-connect.git
+
+# Optional: secure install (requires Rust toolchain)
+# python -m pip install "git+https://github.com/Hardik-Sankhla/relay-connect.git#egg=relay-connect[crypto]"
+
 relay-agent --relay ws://YOUR_LAPTOP_IP:8765 --name my-phone --tags termux
 ```
 

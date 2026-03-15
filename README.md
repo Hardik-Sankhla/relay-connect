@@ -56,10 +56,17 @@ Every deploy today is:
 ## Installation
 
 ```bash
+# Standard install (dev/testing)
 pip install relay-connect
+
+# Secure install (recommended for production)
+pip install "relay-connect[crypto]"
 ```
 
-Requirements: Python 3.10+, `websockets`, `cryptography`, `click`
+Requirements: Python 3.10+, `websockets`, `click`
+
+Security note: Without `cryptography`, relay-connect falls back to a test-only
+HMAC signing mode. This is fine for local testing but not for production.
 
 ---
 
