@@ -178,7 +178,7 @@ def _load_saved_env() -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip()
-        if key and key not in os.environ:
+        if key in {"RELAY_TOKEN", "RELAY_URL", "RELAY_CLIENT_ID"}:
             os.environ[key] = value
 
 
